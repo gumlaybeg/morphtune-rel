@@ -40,7 +40,10 @@ class YtManifestDataSource(
     override fun open(dataSpec: DataSpec): Long {
         if (dataSpec.uri.scheme == "ytvideo") {
             try {
-                val videoId = dataSpec.uri.host ?: throw IOException("Invalid videoId")
+                val videoId = dataSpec.uri.host?.takeIf { it.isNotBlank() }
+                    ?: dataSpec.key
+                    ?: return upstream.open(dataSpec)
+
                 NewPipeExtractor.init()
                 
                 val extractor = ServiceList.YouTube.getStreamExtractor("https://youtube.com/watch?v=$videoId")
@@ -67,7 +70,7 @@ class YtManifestDataSource(
                     val audioStream: AudioStream? = extractor.audioStreams.maxByOrNull { it.getAverageBitrate() }
                     
                     if (videoStream == null && audioStream == null) {
-                        throw IOException("No streams available")
+                        return upstream.open(dataSpec)
                     }
 
                     val videoMime = videoStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "video/mp4"
@@ -122,7 +125,7 @@ class YtManifestDataSource(
                 return manifestBytes!!.size.toLong()
             } catch (e: Exception) {
                 e.printStackTrace()
-                throw IOException("Error extracting YouTube stream", e)
+                return upstream.open(dataSpec)
             }
         } else {
             return upstream.open(dataSpec)
