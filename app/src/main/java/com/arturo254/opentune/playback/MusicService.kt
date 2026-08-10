@@ -543,7 +543,7 @@ class MusicService :
         return false
     }
 
-    @RequiresApi(Build.VERSION.CODES.O)
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun abandonAudioFocus() {
         if (hasAudioFocus) {
             audioFocusRequest?.let { request ->
