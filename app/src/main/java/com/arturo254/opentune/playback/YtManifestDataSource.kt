@@ -62,10 +62,17 @@ class YtManifestDataSource(
                     }
                 } else {
                     val videoStreams: List<VideoStream> = if (extractor.videoOnlyStreams.isNotEmpty()) extractor.videoOnlyStreams else extractor.videoStreams
+                    
+                    // FIX: Limit the background video stream to a maximum of 720p. 
+                    // This prevents MediaCodec initialization failures on phones that do not support 4K/2K decoding
+                    // and drastically reduces bandwidth usage.
                     val videoStream = videoStreams
-                        .filter { (it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0) >= 1080 }
+                        .filter { stream -> 
+                            val res = stream.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0
+                            res <= 720
+                        }
                         .maxByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
-                        ?: videoStreams.maxByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
+                        ?: videoStreams.minByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
                     
                     val audioStream: AudioStream? = extractor.audioStreams.maxByOrNull { it.getAverageBitrate() }
                     
