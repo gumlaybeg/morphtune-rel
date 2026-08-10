@@ -1185,7 +1185,8 @@ class MusicService :
     private fun createDataSourceFactory(): DataSource.Factory {
         return YtManifestDataSourceFactory(
             createCacheDataSource(),
-            database
+            database,
+            this // Pass the context to the factory
         )
     }
 
