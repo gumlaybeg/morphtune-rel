@@ -3,7 +3,6 @@ package com.arturo254.opentune.playback
 import android.content.Context
 import android.net.ConnectivityManager
 import androidx.core.content.getSystemService
-import androidx.core.net.toUri
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
@@ -15,19 +14,14 @@ import com.arturo254.innertube.YouTube
 import com.arturo254.opentune.constants.AudioQuality
 import com.arturo254.opentune.constants.AudioQualityKey
 import com.arturo254.opentune.db.MusicDatabase
-import com.arturo254.opentune.db.entities.FormatEntity
 import com.arturo254.opentune.di.DownloadCache
 import com.arturo254.opentune.di.PlayerCache
-import com.arturo254.opentune.utils.YTPlayerUtils
 import com.arturo254.opentune.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import java.util.concurrent.Executor
 import javax.inject.Inject
@@ -45,7 +39,7 @@ constructor(
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
-    private val songUrlCache = HashMap<String, Pair<String, Long>>()
+
     private val dataSourceFactory =
         YtManifestDataSourceFactory(
             CacheDataSource
@@ -58,10 +52,13 @@ constructor(
                             .proxy(YouTube.proxy)
                             .build(),
                     ),
-                )
-        , database)
+                ),
+            database
+        )
+
     val downloadNotificationHelper =
         DownloadNotificationHelper(context, ExoDownloadService.CHANNEL_ID)
+
     val downloadManager: DownloadManager =
         DownloadManager(
             context,
@@ -79,6 +76,7 @@ constructor(
                 ),
             )
         }
+
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 
     fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
