@@ -163,6 +163,8 @@ dependencies {
     implementation(projects.kizzy)
     implementation(project(":jossredconnect"))
 
+    implementation(libs.newpipe.extractor)
+
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
