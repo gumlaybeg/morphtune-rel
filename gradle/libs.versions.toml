@@ -76,7 +76,7 @@ room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 
 apache-lang3 = { group = "org.apache.commons", name = "commons-lang3", version = "3.17.0" }
 
-hilt = { group = "com.google.dagger", name = "hilt-android", version = "2.53.1" }
+hilt = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
 
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
