@@ -56,6 +56,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.PlayerView
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import androidx.media3.common.C
@@ -304,17 +306,32 @@ fun Thumbnail(
                                             .fillMaxSize()
                                             .background(MaterialTheme.colorScheme.surfaceVariant)
                                     )
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(item.mediaMetadata.artworkUri?.toString())
-                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .diskCachePolicy(CachePolicy.ENABLED)
-                                            .networkCachePolicy(CachePolicy.ENABLED)
-                                            .build(),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                    val isCurrentItem = item.mediaId == currentMediaItem?.mediaId
+                                    if (isPlayerExpanded && isCurrentItem) {
+                                        AndroidView(
+                                            factory = { ctx ->
+                                                PlayerView(ctx).apply {
+                                                    useController = false
+                                                    player = playerConnection.player
+                                                    isClickable = false
+                                                    isFocusable = false
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(LocalContext.current)
+                                                .data(item.mediaMetadata.artworkUri?.toString())
+                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                .diskCachePolicy(CachePolicy.ENABLED)
+                                                .networkCachePolicy(CachePolicy.ENABLED)
+                                                .build(),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
                                 }
                             }
                         }
