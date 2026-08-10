@@ -99,6 +99,13 @@ class YtManifestDataSource(
                 val audioBitrate = audioFormat.bitrate.takeIf { it > 0 } ?: 128000
                 val videoMime = videoFormat?.mimeType?.split(";")?.get(0) ?: "video/mp4"
 
+                // Extract codec from mimeType
+                val audioCodecs = if (audioFormat.mimeType.contains("codecs=")) {
+                    audioFormat.mimeType.substringAfter("codecs=").substringBefore(";").removeSurrounding("\"")
+                } else {
+                    "mp4a"
+                }
+
                 val dashManifest = buildString {
                     append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\">\n")
                     append("  <Period>\n")
@@ -127,7 +134,7 @@ class YtManifestDataSource(
                                 id = videoId,
                                 itag = audioFormat.itag,
                                 mimeType = audioMime,
-                                codecs = audioFormat.codecs ?: "mp4a",
+                                codecs = audioCodecs, // Extracted codecs correctly mapped
                                 bitrate = audioFormat.bitrate,
                                 sampleRate = audioFormat.audioSampleRate ?: 44100,
                                 contentLength = audioFormat.contentLength ?: 0L,
