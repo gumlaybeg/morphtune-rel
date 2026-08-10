@@ -12,6 +12,8 @@ import com.arturo254.opentune.db.entities.FormatEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.VideoStream
 import java.io.IOException
 
 class YtManifestDataSourceFactory(
@@ -55,25 +57,26 @@ class YtManifestDataSource(
                     }
                 }
             } else {
-                val videoStream = extractor.videoOnlyStreams
+                val videoStreams: List<VideoStream> = if (extractor.videoOnlyStreams.isNotEmpty()) extractor.videoOnlyStreams else extractor.videoStreams
+                val videoStream = videoStreams
                     .filter { (it.resolution.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0) >= 1080 }
                     .maxByOrNull { it.resolution.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0 }
-                    ?: extractor.videoStreams.maxByOrNull { it.resolution.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0 }
+                    ?: videoStreams.maxByOrNull { it.resolution.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0 }
                 
-                val audioStream = extractor.audioStreams.maxByOrNull { it.averageBitrate }
+                val audioStream: AudioStream? = extractor.audioStreams.maxByOrNull { it.averageBitrate }
                 
                 val dashManifest = """
                     <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static">
                       <Period>
                         ${if (videoStream != null) """
-                        <AdaptationSet mimeType="${videoStream.format.mimeType.split(";")[0]}">
+                        <AdaptationSet mimeType="${videoStream.format?.mimeType?.split(";")?.get(0) ?: "video/mp4"}">
                           <Representation id="video" bandwidth="1500000">
                             <BaseURL>${videoStream.content.replace("&", "&amp;")}</BaseURL>
                           </Representation>
                         </AdaptationSet>
                         """ else ""}
                         ${if (audioStream != null) """
-                        <AdaptationSet mimeType="${audioStream.format.mimeType.split(";")[0]}">
+                        <AdaptationSet mimeType="${audioStream.format?.mimeType?.split(";")?.get(0) ?: "audio/mp4"}">
                           <Representation id="audio" bandwidth="${audioStream.averageBitrate}">
                             <BaseURL>${audioStream.content.replace("&", "&amp;")}</BaseURL>
                           </Representation>
