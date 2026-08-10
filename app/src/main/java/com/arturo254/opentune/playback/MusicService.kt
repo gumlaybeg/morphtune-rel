@@ -40,6 +40,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -70,6 +71,9 @@ import com.arturo254.opentune.constants.DiscordUseDetailsKey
 import com.arturo254.opentune.constants.EnableDiscordRPCKey
 import com.arturo254.opentune.constants.HideExplicitKey
 import com.arturo254.opentune.constants.HistoryDuration
+import com.arturo254.opentune.constants.MediaSessionConstants.CommandToggleLike
+import com.arturo254.opentune.constants.MediaSessionConstants.CommandToggleRepeatMode
+import com.arturo254.opentune.constants.MediaSessionConstants.CommandToggleShuffle
 import com.arturo254.opentune.constants.PauseListenHistoryKey
 import com.arturo254.opentune.constants.PersistentQueueKey
 import com.arturo254.opentune.constants.PlayerVolumeKey
@@ -121,6 +125,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
@@ -538,7 +543,7 @@ class MusicService :
         return false
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
+    @RequiresApi(Build.VERSION.CODES.O)
     private fun abandonAudioFocus() {
         if (hasAudioFocus) {
             audioFocusRequest?.let { request ->
