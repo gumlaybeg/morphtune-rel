@@ -1,33 +1,34 @@
 package com.arturo254.opentune.playback
 
+import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
-import com.arturo254.innertube.pages.DownloaderImpl
+import com.arturo254.innertube.YouTube
+import com.arturo254.innertube.models.YouTubeClient
 import com.arturo254.innertube.pages.NewPipeExtractor
 import com.arturo254.opentune.db.MusicDatabase
 import com.arturo254.opentune.db.entities.FormatEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.stream.AudioStream
-import org.schabi.newpipe.extractor.stream.VideoStream
 import java.io.IOException
 
 class YtManifestDataSourceFactory(
     private val upstreamFactory: DataSource.Factory,
-    private val database: MusicDatabase
+    private val database: MusicDatabase,
+    private val context: Context
 ) : DataSource.Factory {
     override fun createDataSource(): DataSource {
-        return YtManifestDataSource(upstreamFactory.createDataSource(), database)
+        return YtManifestDataSource(upstreamFactory.createDataSource(), database, context)
     }
 }
 
 class YtManifestDataSource(
     private val upstream: DataSource,
-    private val database: MusicDatabase
+    private val database: MusicDatabase,
+    private val context: Context
 ) : DataSource {
     private var manifestBytes: ByteArray? = null
     private var bytesRead = 0
@@ -42,97 +43,107 @@ class YtManifestDataSource(
             try {
                 val videoId = dataSpec.uri.host?.takeIf { it.isNotBlank() }
                     ?: dataSpec.key
-                    ?: return upstream.open(dataSpec)
+                    ?: throw IOException("Missing videoId in ytvideo:// URI")
 
                 NewPipeExtractor.init()
-                
-                val extractor = ServiceList.YouTube.getStreamExtractor("https://youtube.com/watch?v=$videoId")
-                extractor.fetchPage()
-                
-                val dashUrl = extractor.dashMpdUrl
-                if (!dashUrl.isNullOrEmpty()) {
-                    val request = okhttp3.Request.Builder().url(dashUrl).build()
-                    val response = DownloaderImpl.getInstance().client.newCall(request).execute()
-                    manifestBytes = response.body?.bytes() ?: throw IOException("Empty DASH manifest")
-                    
-                    runBlocking(Dispatchers.IO) {
-                        database.query {
-                            upsert(FormatEntity(videoId, 0, "application/dash+xml", "avc1, mp4a", 0, 44100, 0L, null, dashUrl))
+                val sigTimestamp = NewPipeExtractor.getSignatureTimestamp(videoId).getOrNull()
+
+                // Fetch stream data using official inner clients instead of scraping the webpage.
+                val playerResponse = runBlocking(Dispatchers.IO) {
+                    val clients = listOf(
+                        YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER,
+                        YouTubeClient.IOS,
+                        YouTubeClient.MOBILE,
+                        YouTubeClient.WEB_REMIX,
+                        YouTubeClient.ANDROID_VR_NO_AUTH
+                    )
+                    var response: com.arturo254.innertube.models.response.PlayerResponse? = null
+                    for (client in clients) {
+                        val res = YouTube.player(
+                            client = client,
+                            videoId = videoId,
+                            playlistId = null,
+                            signatureTimestamp = sigTimestamp
+                        ).getOrNull()
+                        
+                        if (res?.playabilityStatus?.status == "OK") {
+                            response = res
+                            break
                         }
                     }
-                } else {
-                    val videoStreams: List<VideoStream> = if (extractor.videoOnlyStreams.isNotEmpty()) extractor.videoOnlyStreams else extractor.videoStreams
-                    
-                    // FIX: Limit the background video stream to a maximum of 720p. 
-                    // This prevents MediaCodec initialization failures on phones that do not support 4K/2K decoding
-                    // and drastically reduces bandwidth usage.
-                    val videoStream = videoStreams
-                        .filter { stream -> 
-                            val res = stream.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0
-                            res <= 720
-                        }
-                        .maxByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
-                        ?: videoStreams.minByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
-                    
-                    val audioStream: AudioStream? = extractor.audioStreams.maxByOrNull { it.getAverageBitrate() }
-                    
-                    if (videoStream == null && audioStream == null) {
-                        return upstream.open(dataSpec)
+                    response
+                }
+
+                if (playerResponse == null) {
+                    throw IOException("Failed to fetch player response for video: $videoId")
+                }
+
+                val formats = playerResponse.streamingData?.adaptiveFormats ?: emptyList()
+                
+                val audioFormat = formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
+                    ?: throw IOException("No audio format found")
+
+                // Video max 720p to prevent MediaCodec crashes on phones that don't support 4K decoding
+                val videoFormat = formats.filter { !it.isAudio && (it.height ?: 0) <= 720 }
+                    .maxByOrNull { it.height ?: 0 }
+                    ?: formats.filter { !it.isAudio }.minByOrNull { it.height ?: 0 }
+
+                val audioUrl = NewPipeExtractor.getStreamUrl(audioFormat, videoId)?.replace("&", "&amp;") ?: ""
+                val videoUrl = videoFormat?.let { NewPipeExtractor.getStreamUrl(it, videoId) }?.replace("&", "&amp;") ?: ""
+
+                if (audioUrl.isBlank()) {
+                    throw IOException("Audio URL could not be resolved")
+                }
+
+                val audioMime = audioFormat.mimeType.split(";")[0]
+                val audioBitrate = audioFormat.bitrate.takeIf { it > 0 } ?: 128000
+                val videoMime = videoFormat?.mimeType?.split(";")?.get(0) ?: "video/mp4"
+
+                val dashManifest = buildString {
+                    append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\">\n")
+                    append("  <Period>\n")
+                    if (videoFormat != null && videoUrl.isNotBlank()) {
+                        append("    <AdaptationSet mimeType=\"$videoMime\">\n")
+                        append("      <Representation id=\"video\" bandwidth=\"1500000\">\n")
+                        append("        <BaseURL>$videoUrl</BaseURL>\n")
+                        append("      </Representation>\n")
+                        append("    </AdaptationSet>\n")
                     }
+                    append("    <AdaptationSet mimeType=\"$audioMime\">\n")
+                    append("      <Representation id=\"audio\" bandwidth=\"$audioBitrate\">\n")
+                    append("        <BaseURL>$audioUrl</BaseURL>\n")
+                    append("      </Representation>\n")
+                    append("    </AdaptationSet>\n")
+                    append("  </Period>\n")
+                    append("</MPD>")
+                }
 
-                    val videoMime = videoStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "video/mp4"
-                    val videoUrl = videoStream?.getUrl()?.replace("&", "&amp;") ?: ""
-                    
-                    val audioMime = audioStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "audio/mp4"
-                    val audioUrl = audioStream?.getUrl()?.replace("&", "&amp;") ?: ""
-                    val audioBitrate = audioStream?.getAverageBitrate()?.takeIf { it > 0 } ?: 128000
+                manifestBytes = dashManifest.toByteArray()
 
-                    val dashManifest = """
-                        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static">
-                          <Period>
-                            ${if (videoStream != null) """
-                            <AdaptationSet mimeType="$videoMime">
-                              <Representation id="video" bandwidth="1500000">
-                                <BaseURL>$videoUrl</BaseURL>
-                              </Representation>
-                            </AdaptationSet>
-                            """ else ""}
-                            ${if (audioStream != null) """
-                            <AdaptationSet mimeType="$audioMime">
-                              <Representation id="audio" bandwidth="$audioBitrate">
-                                <BaseURL>$audioUrl</BaseURL>
-                              </Representation>
-                            </AdaptationSet>
-                            """ else ""}
-                          </Period>
-                        </MPD>
-                    """.trimIndent()
-                    manifestBytes = dashManifest.toByteArray()
-
-                    runBlocking(Dispatchers.IO) {
-                        database.query {
-                            upsert(
-                                FormatEntity(
-                                    id = videoId,
-                                    itag = audioStream?.getFormat()?.id ?: 0,
-                                    mimeType = audioStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "audio/mp4",
-                                    codecs = audioStream?.getFormat()?.mimeType?.substringAfter("codecs=")?.removeSurrounding("\"") ?: "mp4a",
-                                    bitrate = audioStream?.getAverageBitrate() ?: 0,
-                                    sampleRate = 44100,
-                                    contentLength = 0L,
-                                    loudnessDb = null,
-                                    playbackUrl = audioStream?.getUrl()
-                                )
+                runBlocking(Dispatchers.IO) {
+                    database.query {
+                        upsert(
+                            FormatEntity(
+                                id = videoId,
+                                itag = audioFormat.itag,
+                                mimeType = audioMime,
+                                codecs = audioFormat.codecs ?: "mp4a",
+                                bitrate = audioFormat.bitrate,
+                                sampleRate = audioFormat.audioSampleRate ?: 44100,
+                                contentLength = audioFormat.contentLength ?: 0L,
+                                loudnessDb = playerResponse.playerConfig?.audioConfig?.loudnessDb,
+                                playbackUrl = audioUrl.replace("&amp;", "&")
                             )
-                        }
+                        )
                     }
                 }
+
                 bytesRead = 0
                 currentDataSpec = dataSpec
                 return manifestBytes!!.size.toLong()
             } catch (e: Exception) {
                 e.printStackTrace()
-                return upstream.open(dataSpec)
+                throw IOException("YouTube stream extraction failed: ${e.message}", e)
             }
         } else {
             return upstream.open(dataSpec)
