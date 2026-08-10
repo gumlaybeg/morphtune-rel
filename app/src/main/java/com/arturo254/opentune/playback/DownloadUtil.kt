@@ -53,7 +53,8 @@ constructor(
                             .build(),
                     ),
                 ),
-            database
+            database,
+            context // Pass context here
         )
 
     val downloadNotificationHelper =
