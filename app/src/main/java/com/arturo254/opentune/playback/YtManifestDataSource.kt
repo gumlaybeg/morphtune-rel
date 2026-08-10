@@ -110,5 +110,12 @@ class YtManifestDataSource(
     }
 
     override fun getUri(): Uri? = if (manifestBytes != null) currentDataSpec?.uri else upstream.uri
-    override fun close() { if (manifestBytes != null) manifestBytes = null else upstream.close() }
+    
+    override fun close() { 
+        if (manifestBytes != null) {
+            manifestBytes = null 
+        } else {
+            upstream.close() 
+        }
+    }
 }
