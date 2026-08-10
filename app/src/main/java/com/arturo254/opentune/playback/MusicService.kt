@@ -15,6 +15,7 @@ import android.net.ConnectivityManager
 import android.os.Binder
 import android.os.Build
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
 import androidx.core.content.getSystemService
 import androidx.core.net.toUri
@@ -33,12 +34,12 @@ import androidx.media3.common.Player.REPEAT_MODE_ONE
 import androidx.media3.common.Player.STATE_IDLE
 import androidx.media3.common.Timeline
 import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
 import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -76,6 +77,7 @@ import com.arturo254.opentune.constants.RepeatModeKey
 import com.arturo254.opentune.constants.ShowLyricsKey
 import com.arturo254.opentune.constants.SimilarContent
 import com.arturo254.opentune.constants.SkipSilenceKey
+import com.arturo254.opentune.constants.StopMusicOnTaskClearKey
 import com.arturo254.opentune.db.MusicDatabase
 import com.arturo254.opentune.db.entities.Event
 import com.arturo254.opentune.db.entities.FormatEntity
@@ -119,7 +121,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
@@ -136,9 +137,11 @@ import timber.log.Timber
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.time.LocalDateTime
+import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
-@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+@OptIn(UnstableApi::class, ExperimentalCoroutinesApi::class, FlowPreview::class)
+@Suppress("DEPRECATION")
 @AndroidEntryPoint
 class MusicService :
     MediaLibraryService(),
