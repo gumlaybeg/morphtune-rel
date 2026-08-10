@@ -1016,7 +1016,7 @@ class MusicService :
     }
 
     override fun onPlaybackStateChanged(
-        @Player.State playbackState: Int,
+        playbackState: Int,
     ) {
         if (dataStore.get(PersistentQueueKey, true) && playbackState != Player.STATE_BUFFERING) {
             scope.launch {
