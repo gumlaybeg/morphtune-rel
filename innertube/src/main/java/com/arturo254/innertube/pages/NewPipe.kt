@@ -5,18 +5,19 @@ import com.arturo254.innertube.models.response.PlayerResponse
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.schabi.newpipe.extractor.Downloader
 import org.schabi.newpipe.extractor.NewPipe
-import org.schabi.newpipe.extractor.network.Response
+import org.schabi.newpipe.extractor.downloader.Downloader
+import org.schabi.newpipe.extractor.downloader.Request as ExtractorRequest
+import org.schabi.newpipe.extractor.downloader.Response
 import java.util.concurrent.TimeUnit
 
-class DownloaderImpl private constructor() : Downloader {
+class DownloaderImpl private constructor() : Downloader() {
     val client = OkHttpClient.Builder()
         .readTimeout(30, TimeUnit.SECONDS)
         .connectTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    override fun execute(request: org.schabi.newpipe.extractor.network.Request): Response {
+    override fun execute(request: ExtractorRequest): Response {
         val builder = Request.Builder().url(request.url())
         
         request.headers()?.forEach { (key, values) ->
@@ -33,7 +34,13 @@ class DownloaderImpl private constructor() : Downloader {
             headers[name] = response.headers.values(name)
         }
         
-        return Response(response.code, response.message, headers, response.body?.string(), response.request.url.toString())
+        return Response(
+            response.code,
+            response.message,
+            headers,
+            response.body?.string(),
+            response.request.url.toString()
+        )
     }
 
     companion object {
