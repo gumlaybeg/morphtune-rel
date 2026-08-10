@@ -16,7 +16,6 @@ fun Song.toMediaItem() =
         .Builder()
         .setMediaId(song.id)
         .setUri("ytvideo://${song.id}/manifest.mpd")
-        .setCustomCacheKey(song.id)
         .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
         .setTag(toMediaMetadata())
         .setMediaMetadata(
@@ -36,7 +35,6 @@ fun SongItem.toMediaItem() =
         .Builder()
         .setMediaId(id)
         .setUri("ytvideo://${id}/manifest.mpd")
-        .setCustomCacheKey(id)
         .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
         .setTag(toMediaMetadata())
         .setMediaMetadata(
@@ -56,7 +54,6 @@ fun MediaMetadata.toMediaItem() =
         .Builder()
         .setMediaId(id)
         .setUri("ytvideo://${id}/manifest.mpd")
-        .setCustomCacheKey(id)
         .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
         .setTag(this)
         .setMediaMetadata(
