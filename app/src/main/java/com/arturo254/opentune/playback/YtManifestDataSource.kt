@@ -60,30 +60,37 @@ class YtManifestDataSource(
                 } else {
                     val videoStreams: List<VideoStream> = if (extractor.videoOnlyStreams.isNotEmpty()) extractor.videoOnlyStreams else extractor.videoStreams
                     val videoStream = videoStreams
-                        .filter { (it.resolution?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0) >= 1080 }
-                        .maxByOrNull { it.resolution?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
-                        ?: videoStreams.maxByOrNull { it.resolution?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
+                        .filter { (it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0) >= 1080 }
+                        .maxByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
+                        ?: videoStreams.maxByOrNull { it.getResolution()?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
                     
-                    val audioStream: AudioStream? = extractor.audioStreams.maxByOrNull { it.averageBitrate }
+                    val audioStream: AudioStream? = extractor.audioStreams.maxByOrNull { it.getAverageBitrate() }
                     
                     if (videoStream == null && audioStream == null) {
                         throw IOException("No streams available")
                     }
 
+                    val videoMime = videoStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "video/mp4"
+                    val videoUrl = videoStream?.getUrl()?.replace("&", "&amp;") ?: ""
+                    
+                    val audioMime = audioStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "audio/mp4"
+                    val audioUrl = audioStream?.getUrl()?.replace("&", "&amp;") ?: ""
+                    val audioBitrate = audioStream?.getAverageBitrate()?.takeIf { it > 0 } ?: 128000
+
                     val dashManifest = """
                         <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static">
                           <Period>
                             ${if (videoStream != null) """
-                            <AdaptationSet mimeType="${videoStream.format?.mimeType?.split(";")?.get(0) ?: "video/mp4"}">
-                              <Representation id="video" bandwidth="${videoStream.averageBitrate.takeIf { it > 0 } ?: 1500000}">
-                                <BaseURL>${videoStream.content.replace("&", "&amp;")}</BaseURL>
+                            <AdaptationSet mimeType="$videoMime">
+                              <Representation id="video" bandwidth="1500000">
+                                <BaseURL>$videoUrl</BaseURL>
                               </Representation>
                             </AdaptationSet>
                             """ else ""}
                             ${if (audioStream != null) """
-                            <AdaptationSet mimeType="${audioStream.format?.mimeType?.split(";")?.get(0) ?: "audio/mp4"}">
-                              <Representation id="audio" bandwidth="${audioStream.averageBitrate.takeIf { it > 0 } ?: 128000}">
-                                <BaseURL>${audioStream.content.replace("&", "&amp;")}</BaseURL>
+                            <AdaptationSet mimeType="$audioMime">
+                              <Representation id="audio" bandwidth="$audioBitrate">
+                                <BaseURL>$audioUrl</BaseURL>
                               </Representation>
                             </AdaptationSet>
                             """ else ""}
@@ -94,7 +101,19 @@ class YtManifestDataSource(
 
                     runBlocking(Dispatchers.IO) {
                         database.query {
-                            upsert(FormatEntity(videoId, audioStream?.format?.id ?: 0, audioStream?.format?.mimeType?.split(";")?.get(0) ?: "audio/mp4", audioStream?.format?.mimeType?.substringAfter("codecs=")?.removeSurrounding("\"") ?: "mp4a", audioStream?.averageBitrate ?: 0, 44100, 0L, null, audioStream?.content))
+                            upsert(
+                                FormatEntity(
+                                    id = videoId,
+                                    itag = audioStream?.getFormat()?.id ?: 0,
+                                    mimeType = audioStream?.getFormat()?.mimeType?.split(";")?.get(0) ?: "audio/mp4",
+                                    codecs = audioStream?.getFormat()?.mimeType?.substringAfter("codecs=")?.removeSurrounding("\"") ?: "mp4a",
+                                    bitrate = audioStream?.getAverageBitrate() ?: 0,
+                                    sampleRate = 44100,
+                                    contentLength = 0L,
+                                    loudnessDb = null,
+                                    playbackUrl = audioStream?.getUrl()
+                                )
+                            )
                         }
                     }
                 }
