@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.PlaybackException
 import com.arturo254.opentune.R
@@ -21,6 +22,13 @@ fun PlaybackError(
     error: PlaybackException,
     retry: () -> Unit,
 ) {
+    // Collect the most relevant actual log error available instead of falling back immediately
+    val errorMessage = error.cause?.cause?.message 
+        ?: error.cause?.message 
+        ?: error.message 
+        ?: error.errorCodeName
+        ?: stringResource(R.string.error_unknown)
+
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -38,8 +46,10 @@ fun PlaybackError(
         )
 
         Text(
-            text = error.cause?.cause?.message ?: stringResource(R.string.error_unknown),
+            text = errorMessage,
             style = MaterialTheme.typography.bodyMedium,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
