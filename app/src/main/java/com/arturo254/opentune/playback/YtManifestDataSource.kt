@@ -106,8 +106,14 @@ class YtManifestDataSource(
                     "mp4a"
                 }
 
+                // Extract duration for static MPD manifest
+                val durationMs = audioFormat.approxDurationMs?.toLongOrNull() 
+                    ?: (playerResponse.videoDetails?.lengthSeconds?.toLongOrNull()?.times(1000)) 
+                    ?: 0L
+                val durationSec = durationMs / 1000.0
+
                 val dashManifest = buildString {
-                    append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\">\n")
+                    append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\" mediaPresentationDuration=\"PT${durationSec}S\">\n")
                     append("  <Period>\n")
                     if (videoFormat != null && videoUrl.isNotBlank()) {
                         append("    <AdaptationSet mimeType=\"$videoMime\">\n")
