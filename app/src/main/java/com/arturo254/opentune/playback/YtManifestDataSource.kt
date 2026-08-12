@@ -80,12 +80,15 @@ class YtManifestDataSource(
 
                 val formats = playerResponse.streamingData?.adaptiveFormats ?: emptyList()
                 
-                val audioFormat = formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
+                // Prefer MP4 audio for better hardware compatibility
+                val audioFormat = formats.filter { it.isAudio && it.mimeType.contains("mp4") }.maxByOrNull { it.bitrate }
+                    ?: formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
                     ?: throw IOException("No audio format found")
 
-                // Video max 720p to prevent MediaCodec crashes on phones that don't support 4K decoding
-                val videoFormat = formats.filter { !it.isAudio && (it.height ?: 0) <= 720 }
+                // Prefer MP4 video <= 720p for better hardware compatibility
+                val videoFormat = formats.filter { !it.isAudio && (it.height ?: 0) <= 720 && it.mimeType.contains("mp4") }
                     .maxByOrNull { it.height ?: 0 }
+                    ?: formats.filter { !it.isAudio && (it.height ?: 0) <= 720 }.maxByOrNull { it.height ?: 0 }
                     ?: formats.filter { !it.isAudio }.minByOrNull { it.height ?: 0 }
 
                 val audioUrl = NewPipeExtractor.getStreamUrl(audioFormat, videoId)?.replace("&", "&amp;") ?: ""
@@ -95,16 +98,18 @@ class YtManifestDataSource(
                     throw IOException("Audio URL could not be resolved")
                 }
 
-                val audioMime = audioFormat.mimeType.split(";")[0]
+                val audioMime = audioFormat.mimeType.split(";")[0].trim()
                 val audioBitrate = audioFormat.bitrate.takeIf { it > 0 } ?: 128000
-                val videoMime = videoFormat?.mimeType?.split(";")?.get(0) ?: "video/mp4"
+                val videoMime = videoFormat?.mimeType?.split(";")?.get(0)?.trim() ?: "video/mp4"
 
-                // Extract codec from mimeType
-                val audioCodecs = if (audioFormat.mimeType.contains("codecs=")) {
-                    audioFormat.mimeType.substringAfter("codecs=").substringBefore(";").removeSurrounding("\"")
-                } else {
-                    "mp4a"
+                fun extractCodecs(mimeType: String): String {
+                    val match = Regex("""codecs="([^"]+)"""").find(mimeType)
+                        ?: Regex("""codecs=([^;]+)""").find(mimeType)
+                    return match?.groupValues?.get(1) ?: ""
                 }
+
+                val audioCodecs = extractCodecs(audioFormat.mimeType).takeIf { it.isNotEmpty() } ?: if (audioMime.contains("mp4")) "mp4a.40.2" else "opus"
+                val videoCodecs = videoFormat?.mimeType?.let { extractCodecs(it) }?.takeIf { it.isNotEmpty() } ?: if (videoMime.contains("mp4")) "avc1.4d401e" else "vp9"
 
                 // Extract duration for static MPD manifest
                 val durationMs = audioFormat.approxDurationMs?.toLongOrNull() 
@@ -116,14 +121,14 @@ class YtManifestDataSource(
                     append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\" mediaPresentationDuration=\"PT${durationSec}S\">\n")
                     append("  <Period>\n")
                     if (videoFormat != null && videoUrl.isNotBlank()) {
-                        append("    <AdaptationSet mimeType=\"$videoMime\">\n")
-                        append("      <Representation id=\"video\" bandwidth=\"1500000\">\n")
+                        append("    <AdaptationSet id=\"0\" mimeType=\"$videoMime\">\n")
+                        append("      <Representation id=\"video\" bandwidth=\"${videoFormat.bitrate}\" codecs=\"$videoCodecs\">\n")
                         append("        <BaseURL>$videoUrl</BaseURL>\n")
                         append("      </Representation>\n")
                         append("    </AdaptationSet>\n")
                     }
-                    append("    <AdaptationSet mimeType=\"$audioMime\">\n")
-                    append("      <Representation id=\"audio\" bandwidth=\"$audioBitrate\">\n")
+                    append("    <AdaptationSet id=\"1\" mimeType=\"$audioMime\">\n")
+                    append("      <Representation id=\"audio\" bandwidth=\"$audioBitrate\" codecs=\"$audioCodecs\">\n")
                     append("        <BaseURL>$audioUrl</BaseURL>\n")
                     append("      </Representation>\n")
                     append("    </AdaptationSet>\n")
@@ -140,7 +145,7 @@ class YtManifestDataSource(
                                 id = videoId,
                                 itag = audioFormat.itag,
                                 mimeType = audioMime,
-                                codecs = audioCodecs, // Extracted codecs correctly mapped
+                                codecs = audioCodecs,
                                 bitrate = audioFormat.bitrate,
                                 sampleRate = audioFormat.audioSampleRate ?: 44100,
                                 contentLength = audioFormat.contentLength ?: 0L,
