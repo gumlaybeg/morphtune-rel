@@ -13,6 +13,8 @@ import com.arturo254.opentune.db.MusicDatabase
 import com.arturo254.opentune.db.entities.FormatEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.IOException
 
 class YtManifestDataSourceFactory(
@@ -34,6 +36,21 @@ class YtManifestDataSource(
     private var bytesRead = 0
     private var currentDataSpec: DataSpec? = null
 
+    // We use the same configuration as ExoPlayer will use to ensure accurate validation
+    private val httpClient = OkHttpClient.Builder().proxy(YouTube.proxy).build()
+
+    private fun validateStatus(url: String): Boolean {
+        return try {
+            val request = Request.Builder().head().url(url).build()
+            val response = httpClient.newCall(request).execute()
+            val isSuccess = response.isSuccessful
+            response.close()
+            isSuccess
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     override fun addTransferListener(transferListener: TransferListener) {
         upstream.addTransferListener(transferListener)
     }
@@ -48,55 +65,65 @@ class YtManifestDataSource(
                 NewPipeExtractor.init()
                 val sigTimestamp = NewPipeExtractor.getSignatureTimestamp(videoId).getOrNull()
 
-                // Fetch stream data using official inner clients instead of scraping the webpage.
-                val playerResponse = runBlocking(Dispatchers.IO) {
-                    val clients = listOf(
-                        YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER,
-                        YouTubeClient.IOS,
-                        YouTubeClient.MOBILE,
-                        YouTubeClient.WEB_REMIX,
-                        YouTubeClient.ANDROID_VR_NO_AUTH
-                    )
-                    var response: com.arturo254.innertube.models.response.PlayerResponse? = null
-                    for (client in clients) {
-                        val res = YouTube.player(
+                // Prioritize clients that do not strictly enforce PoToken or specific headers
+                val clients = listOf(
+                    YouTubeClient.ANDROID_VR_NO_AUTH,
+                    YouTubeClient.MOBILE,
+                    YouTubeClient.WEB_REMIX,
+                    YouTubeClient.IOS,
+                    YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER
+                )
+                
+                var validAudioFormat: com.arturo254.innertube.models.response.PlayerResponse.StreamingData.Format? = null
+                var validVideoFormat: com.arturo254.innertube.models.response.PlayerResponse.StreamingData.Format? = null
+                var audioUrl = ""
+                var videoUrl = ""
+                var playerResponse: com.arturo254.innertube.models.response.PlayerResponse? = null
+
+                for (client in clients) {
+                    val res = runBlocking(Dispatchers.IO) {
+                        YouTube.player(
                             client = client,
                             videoId = videoId,
                             playlistId = null,
                             signatureTimestamp = sigTimestamp
                         ).getOrNull()
+                    }
+                    
+                    if (res?.playabilityStatus?.status == "OK") {
+                        val formats = res.streamingData?.adaptiveFormats ?: emptyList()
                         
-                        if (res?.playabilityStatus?.status == "OK") {
-                            response = res
+                        // Prefer MP4 audio for better hardware compatibility
+                        val aFormat = formats.filter { it.isAudio && it.mimeType.contains("mp4") }.maxByOrNull { it.bitrate }
+                            ?: formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
+                            ?: continue
+
+                        // Prefer MP4 video <= 720p for better hardware compatibility
+                        val vFormat = formats.filter { !it.isAudio && (it.height ?: 0) <= 720 && it.mimeType.contains("mp4") }
+                            .maxByOrNull { it.height ?: 0 }
+                            ?: formats.filter { !it.isAudio && (it.height ?: 0) <= 720 }.maxByOrNull { it.height ?: 0 }
+                            ?: formats.filter { !it.isAudio }.minByOrNull { it.height ?: 0 }
+
+                        val aUrl = NewPipeExtractor.getStreamUrl(aFormat, videoId) ?: continue
+                        
+                        // Validate the stream URL to avoid 403 Forbidden errors during playback
+                        if (validateStatus(aUrl)) {
+                            validAudioFormat = aFormat
+                            validVideoFormat = vFormat
+                            audioUrl = aUrl.replace("&", "&amp;")
+                            videoUrl = vFormat?.let { NewPipeExtractor.getStreamUrl(it, videoId) }?.replace("&", "&amp;") ?: ""
+                            playerResponse = res
                             break
                         }
                     }
-                    response
                 }
 
-                if (playerResponse == null) {
-                    throw IOException("Failed to fetch player response for video: $videoId")
+                if (validAudioFormat == null || playerResponse == null) {
+                    throw IOException("Failed to fetch a working (non-403) player response for video: $videoId")
                 }
 
-                val formats = playerResponse.streamingData?.adaptiveFormats ?: emptyList()
-                
-                // Prefer MP4 audio for better hardware compatibility
-                val audioFormat = formats.filter { it.isAudio && it.mimeType.contains("mp4") }.maxByOrNull { it.bitrate }
-                    ?: formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
-                    ?: throw IOException("No audio format found")
-
-                // Prefer MP4 video <= 720p for better hardware compatibility
-                val videoFormat = formats.filter { !it.isAudio && (it.height ?: 0) <= 720 && it.mimeType.contains("mp4") }
-                    .maxByOrNull { it.height ?: 0 }
-                    ?: formats.filter { !it.isAudio && (it.height ?: 0) <= 720 }.maxByOrNull { it.height ?: 0 }
-                    ?: formats.filter { !it.isAudio }.minByOrNull { it.height ?: 0 }
-
-                val audioUrl = NewPipeExtractor.getStreamUrl(audioFormat, videoId)?.replace("&", "&amp;") ?: ""
-                val videoUrl = videoFormat?.let { NewPipeExtractor.getStreamUrl(it, videoId) }?.replace("&", "&amp;") ?: ""
-
-                if (audioUrl.isBlank()) {
-                    throw IOException("Audio URL could not be resolved")
-                }
+                val audioFormat = validAudioFormat
+                val videoFormat = validVideoFormat
 
                 val audioMime = audioFormat.mimeType.split(";")[0].trim()
                 val audioBitrate = audioFormat.bitrate.takeIf { it > 0 } ?: 128000
@@ -129,7 +156,7 @@ class YtManifestDataSource(
                     }
                     append("    <AdaptationSet id=\"1\" mimeType=\"$audioMime\">\n")
                     append("      <Representation id=\"audio\" bandwidth=\"$audioBitrate\" codecs=\"$audioCodecs\">\n")
-                    append("        <BaseURL>$audioUrl</BaseURL>\n")
+                        append("        <BaseURL>$audioUrl</BaseURL>\n")
                     append("      </Representation>\n")
                     append("    </AdaptationSet>\n")
                     append("  </Period>\n")
