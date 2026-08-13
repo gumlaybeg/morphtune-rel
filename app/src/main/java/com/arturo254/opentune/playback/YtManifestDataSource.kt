@@ -16,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class YtManifestDataSourceFactory(
     private val upstreamFactory: DataSource.Factory,
@@ -36,8 +37,12 @@ class YtManifestDataSource(
     private var bytesRead = 0
     private var currentDataSpec: DataSpec? = null
 
-    // We use the same configuration as ExoPlayer will use to ensure accurate validation
-    private val httpClient = OkHttpClient.Builder().proxy(YouTube.proxy).build()
+    // Fast fail timeouts to prevent hanging on blocked streams
+    private val httpClient = OkHttpClient.Builder()
+        .proxy(YouTube.proxy)
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .build()
 
     private fun validateStatus(url: String): Boolean {
         return try {
@@ -66,12 +71,13 @@ class YtManifestDataSource(
                 val sigTimestamp = NewPipeExtractor.getSignatureTimestamp(videoId).getOrNull()
 
                 // Prioritize clients that do not strictly enforce PoToken or specific headers
+                // IOS and TVHTML5 are currently the fastest and most reliable bypasses
                 val clients = listOf(
-                    YouTubeClient.ANDROID_VR_NO_AUTH,
-                    YouTubeClient.MOBILE,
-                    YouTubeClient.WEB_REMIX,
                     YouTubeClient.IOS,
-                    YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER
+                    YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER,
+                    YouTubeClient.WEB_REMIX,
+                    YouTubeClient.ANDROID_VR_NO_AUTH,
+                    YouTubeClient.MOBILE
                 )
                 
                 var validAudioFormat: com.arturo254.innertube.models.response.PlayerResponse.StreamingData.Format? = null
