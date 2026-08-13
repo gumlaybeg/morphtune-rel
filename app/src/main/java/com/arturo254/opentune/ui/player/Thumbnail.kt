@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import androidx.media3.common.C
@@ -71,7 +72,7 @@ import com.arturo254.opentune.constants.PlayerBackgroundStyle
 import com.arturo254.opentune.constants.PlayerBackgroundStyleKey
 import com.arturo254.opentune.constants.PlayerHorizontalPadding
 import com.arturo254.opentune.constants.SwipeThumbnailKey
-import com.arturo254.opentune.ui.component.AppConfig // AÑADIR ESTE IMPORT
+import com.arturo254.opentune.ui.component.AppConfig
 import com.arturo254.opentune.utils.rememberEnumPreference
 import com.arturo254.opentune.utils.rememberPreference
 import kotlinx.coroutines.delay
@@ -298,7 +299,6 @@ fun Thumbnail(
                                 Box(
                                     modifier = Modifier
                                         .size(containerMaxWidth - (PlayerHorizontalPadding * 2))
-                                        // CAMBIADO: Usar thumbnailCornerRadius en lugar de la constante
                                         .clip(RoundedCornerShape(thumbnailCornerRadius.dp * 2))
                                 ) {
                                     Box(
@@ -315,6 +315,8 @@ fun Thumbnail(
                                                     player = playerConnection.player
                                                     isClickable = false
                                                     isFocusable = false
+                                                    // Fixes black bars by zooming the video to fill the box
+                                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM 
                                                 }
                                             },
                                             modifier = Modifier.fillMaxSize()
@@ -328,7 +330,8 @@ fun Thumbnail(
                                                 .networkCachePolicy(CachePolicy.ENABLED)
                                                 .build(),
                                             contentDescription = null,
-                                            contentScale = ContentScale.Fit,
+                                            // Fixes black bars for the static thumbnail
+                                            contentScale = ContentScale.Crop, 
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     }
