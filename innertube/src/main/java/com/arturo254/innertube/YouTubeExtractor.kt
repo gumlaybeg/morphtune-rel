@@ -258,7 +258,7 @@ object YouTubeExtractor {
         
         // Match player hash: YouTube may use uppercase chars and embeds it in various formats
         // e.g. /s/player/b0d2d49a/  or  player\/b0d2d49a\/
-        val hashMatch = Regex(""""[\/\\]player[\/\\]([A-Za-z0-9]{8})[\/\\]"""").find(iframeApi)
+        val hashMatch = Regex("""[\/\\]player[\/\\]([A-Za-z0-9]{8})[\/\\]""").find(iframeApi)
         
         val playerJsUrl = if (hashMatch != null) {
             val url = "https://www.youtube.com/s/player/${hashMatch.groupValues[1]}/player_ias.vflset/en_US/base.js"
