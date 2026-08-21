@@ -252,13 +252,48 @@ object YouTubeExtractor {
             }
         }
 
+        // --- Cache miss: resolve player JS URL from network ---
+        println("[YouTubeExtractor] Cache miss — resolving YouTube player JS URL...")
         val iframeApi = fetchUrl("https://www.youtube.com/iframe_api")
-        val hashMatch = Regex("""player\/([a-z0-9]{8})\/""").find(iframeApi)
+        
+        // Match player hash: YouTube may use uppercase chars and embeds it in various formats
+        // e.g. /s/player/b0d2d49a/  or  player\/b0d2d49a\/
+        val hashMatch = Regex(""""[\/\\]player[\/\\]([A-Za-z0-9]{8})[\/\\]"""").find(iframeApi)
+        
         val playerJsUrl = if (hashMatch != null) {
-            "https://www.youtube.com/s/player/${hashMatch.groupValues[1]}/player_ias.vflset/en_US/base.js"
+            val url = "https://www.youtube.com/s/player/${hashMatch.groupValues[1]}/player_ias.vflset/en_US/base.js"
+            println("[YouTubeExtractor] Found player JS URL via iframe_api: $url")
+            url
         } else {
-            "https://www.youtube.com/s/player/f98246f4/player_ias.vflset/en_US/base.js"
+            println("[YouTubeExtractor] iframe_api regex match failed. Trying watch embed fallback...")
+            val embedPage = fetchUrl("https://www.youtube.com/embed/dQw4w9WgXcQ")
+            
+            // YouTube may escape slashes in JSON: "jsUrl":"\/s\/player\/..." or "jsUrl":"/s/player/..."
+            val embedMatch = Regex(""""jsUrl"\s*:\s*"((?:\\/|/)[^"]+base\.js)"""").find(embedPage)
+            if (embedMatch != null) {
+                // Unescape any JSON-escaped forward slashes
+                val rawPath = embedMatch.groupValues[1].replace("\\/", "/")
+                
+                // Extract the 8-char hash and ALWAYS build the canonical IAS player URL.
+                // Embed page returns player_embed_es6.vflset which has a different JS structure
+                // and SILENTLY breaks deobfuscation pattern matching (wrong function signatures).
+                val hashFromEmbed = Regex("/player/([A-Za-z0-9]{8})/").find(rawPath)?.groupValues?.get(1)
+                val url = if (hashFromEmbed != null) {
+                    val canonical = "https://www.youtube.com/s/player/$hashFromEmbed/player_ias.vflset/en_US/base.js"
+                    println("[YouTubeExtractor] Embed fallback: hash=$hashFromEmbed -> canonical IAS URL: $canonical")
+                    canonical
+                } else {
+                    val full = if (rawPath.startsWith("http")) rawPath else "https://www.youtube.com$rawPath"
+                    println("[YouTubeExtractor] Embed page fallback (no hash extracted): $full")
+                    full
+                }
+                url
+            } else {
+                println("[YouTubeExtractor] Embed page fallback also failed!")
+                "https://www.youtube.com/s/player/f98246f4/player_ias.vflset/en_US/base.js"
+            }
         }
+        
         currentResolvedUrl = playerJsUrl
 
         if (loadCache(playerJsUrl)) {
