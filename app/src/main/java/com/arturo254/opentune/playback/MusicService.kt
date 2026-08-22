@@ -58,6 +58,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionToken
 import com.arturo254.innertube.YouTube
 import com.arturo254.innertube.models.SongItem
+import com.arturo254.innertube.models.YouTubeClient
 import com.arturo254.innertube.models.WatchEndpoint
 import com.arturo254.opentune.MainActivity
 import com.arturo254.opentune.R
@@ -1176,7 +1177,7 @@ class MusicService :
                                     .Builder()
                                     .proxy(YouTube.proxy)
                                     .build(),
-                            ),
+                            ).setUserAgent(YouTubeClient.IOS.userAgent),
                         ),
                     ),
             ).setCacheWriteDataSinkFactory(null)
