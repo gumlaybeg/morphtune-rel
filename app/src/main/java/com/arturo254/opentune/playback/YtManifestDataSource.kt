@@ -44,15 +44,16 @@ class YtManifestDataSource(
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private fun validateStatus(url: String, userAgent: String): Boolean {
+    private fun validateStatus(url: String): Boolean {
         return try {
             val request = Request.Builder()
-                .head()
+                .get()
                 .url(url)
-                .header("User-Agent", userAgent)
+                .header("User-Agent", YouTubeClient.IOS.userAgent)
+                .header("Range", "bytes=0-0")
                 .build()
             val response = httpClient.newCall(request).execute()
-            val isSuccess = response.isSuccessful
+            val isSuccess = response.isSuccessful || response.code == 206
             response.close()
             isSuccess
         } catch (e: Exception) {
@@ -74,8 +75,6 @@ class YtManifestDataSource(
                 NewPipeExtractor.init()
                 val sigTimestamp = NewPipeExtractor.getSignatureTimestamp(videoId).getOrNull()
 
-                // Prioritize clients that do not strictly enforce PoToken or specific headers
-                // IOS and TVHTML5 are currently the fastest and most reliable bypasses
                 val clients = listOf(
                     YouTubeClient.IOS,
                     YouTubeClient.TVHTML5_SIMPLY_EMBEDDED_PLAYER,
@@ -109,12 +108,10 @@ class YtManifestDataSource(
                     if (res?.playabilityStatus?.status == "OK") {
                         val formats = res.streamingData?.adaptiveFormats ?: emptyList()
                         
-                        // Prefer MP4 audio for better hardware compatibility
                         val aFormat = formats.filter { it.isAudio && it.mimeType.contains("mp4") }.maxByOrNull { it.bitrate }
                             ?: formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
                             ?: continue
 
-                        // Prefer MP4 video <= 720p for better hardware compatibility
                         val vFormat = formats.filter { !it.isAudio && (it.height ?: 0) <= 720 && it.mimeType.contains("mp4") }
                             .maxByOrNull { it.height ?: 0 }
                             ?: formats.filter { !it.isAudio && (it.height ?: 0) <= 720 }.maxByOrNull { it.height ?: 0 }
@@ -130,8 +127,7 @@ class YtManifestDataSource(
                             firstPlayerResponse = res
                         }
                         
-                        // Validate the stream URL to avoid 403 Forbidden errors during playback
-                        if (validateStatus(aUrl, client.userAgent)) {
+                        if (validateStatus(aUrl)) {
                             validAudioFormat = aFormat
                             validVideoFormat = vFormat
                             audioUrl = aUrl.replace("&", "&amp;")
@@ -142,7 +138,6 @@ class YtManifestDataSource(
                     }
                 }
                 
-                // If all validations failed, fallback to the first client that returned a stream URL
                 if (validAudioFormat == null && firstAudioFormat != null) {
                     println("All HEAD validations failed. Falling back to first extracted stream.")
                     validAudioFormat = firstAudioFormat
@@ -172,7 +167,6 @@ class YtManifestDataSource(
                 val audioCodecs = extractCodecs(audioFormat.mimeType).takeIf { it.isNotEmpty() } ?: if (audioMime.contains("mp4")) "mp4a.40.2" else "opus"
                 val videoCodecs = videoFormat?.mimeType?.let { extractCodecs(it) }?.takeIf { it.isNotEmpty() } ?: if (videoMime.contains("mp4")) "avc1.4d401e" else "vp9"
 
-                // Extract duration for static MPD manifest
                 val durationMs = audioFormat.approxDurationMs?.toLongOrNull() 
                     ?: (playerResponse.videoDetails?.lengthSeconds?.toLongOrNull()?.times(1000)) 
                     ?: 0L
