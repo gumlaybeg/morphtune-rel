@@ -66,36 +66,151 @@ object YouTubeExtractor {
         val match = funcNameRegex.find(js)
         if (match != null) {
             deobfuscateFuncName = match.groupValues[1]
-            val funcBodyRegex = Regex("""(?x)(?:function\s+${deobfuscateFuncName}|var\s+${deobfuscateFuncName}\s*=\s*function)\s*\(([^)]*)\)\s*\{([^}]+)\}""")
-            val funcMatch = funcBodyRegex.find(js)
-            if (funcMatch != null) {
-                val args = funcMatch.groupValues[1]
-                val body = funcMatch.groupValues[2]
-                
+            val funcName = deobfuscateFuncName!!
+            
+            val startStr = "$funcName=function("
+            var startIdx = js.indexOf(startStr)
+            if (startIdx == -1) startIdx = js.indexOf("function $funcName(")
+            
+            var bodyContent = ""
+            if (startIdx != -1) {
+                val braceStart = js.indexOf("{", startIdx)
+                if (braceStart != -1) {
+                    var openBraces = 0
+                    var endIdx = -1
+                    for (i in braceStart until js.length) {
+                        if (js[i] == '{') openBraces++
+                        else if (js[i] == '}') {
+                            openBraces--
+                            if (openBraces == 0) {
+                                endIdx = i
+                                break
+                            }
+                        }
+                    }
+                    if (endIdx != -1) {
+                        bodyContent = js.substring(startIdx, endIdx + 1)
+                    }
+                }
+            }
+            
+            if (bodyContent.isNotEmpty()) {
                 val helperObjRegex = Regex(""";([a-zA-Z0-9$]+)\.[a-zA-Z0-9$]+\(""")
-                val helperObjMatch = helperObjRegex.find(body)
+                val helperObjMatch = helperObjRegex.find(bodyContent)
                 var helperCode = ""
                 if (helperObjMatch != null) {
                     val helperName = helperObjMatch.groupValues[1]
-                    val helperRegex = Regex("""var\s+${helperName}\s*=\s*\{[\s\S]*?\};\s*""")
-                    helperCode = helperRegex.find(js)?.value ?: ""
+                    val helperStart = js.indexOf("var $helperName={")
+                    if (helperStart != -1) {
+                        var openBraces = 0
+                        var helperEnd = -1
+                        for (i in helperStart + "var $helperName=".length until js.length) {
+                            if (js[i] == '{') openBraces++
+                            else if (js[i] == '}') {
+                                openBraces--
+                                if (openBraces == 0) {
+                                    helperEnd = i
+                                    break
+                                }
+                            }
+                        }
+                        if (helperEnd != -1) {
+                            helperCode = js.substring(helperStart, helperEnd + 1) + ";"
+                        }
+                    }
                 }
-                deobfuscateJsCode = "$helperCode\nfunction ${deobfuscateFuncName}($args) {$body}"
+                val funcDeclaration = if (bodyContent.startsWith("function")) bodyContent else "var $bodyContent;"
+                deobfuscateJsCode = "$helperCode\n$funcDeclaration"
             }
         }
     }
 
     private fun prepareThrottlingDeobfuscator(js: String) {
-        val funcNameRegex = Regex("""\b[a-zA-Z0-9$]+\s*&&\s*[a-zA-Z0-9]+\.set\([^,]+\s*,\s*encodeURIComponent\s*\(\s*([a-zA-Z0-9$]+)\(""")
-        val match = funcNameRegex.find(js)
+        val nFuncNameRegex = Regex("""\.get\("n"\)\)&&\([a-zA-Z0-9$]+?=([a-zA-Z0-9$]+)(?:\[(\d+)\])?\([a-zA-Z0-9$]+\)""")
+        val match = nFuncNameRegex.find(js)
         if (match != null) {
-            transformNFuncName = match.groupValues[1]
-            val funcBodyRegex = Regex("""(?x)(?:function\s+${transformNFuncName}|var\s+${transformNFuncName}\s*=\s*function)\s*\(([^)]*)\)\s*\{([^}]+)\}""")
-            val funcMatch = funcBodyRegex.find(js)
-            if (funcMatch != null) {
-                val args = funcMatch.groupValues[1]
-                val body = funcMatch.groupValues[2]
-                transformNJsCode = "function ${transformNFuncName}($args) {$body}"
+            val funcName = match.groupValues[1]
+            val index = match.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
+            
+            if (index != null) {
+                val startIdx = js.indexOf("var $funcName=[")
+                if (startIdx != -1) {
+                    var openBrackets = 0
+                    var endIdx = -1
+                    for (i in startIdx + "var $funcName=".length until js.length) {
+                        if (js[i] == '[') openBrackets++
+                        else if (js[i] == ']') {
+                            openBrackets--
+                            if (openBrackets == 0) {
+                                endIdx = i
+                                break
+                            }
+                        }
+                    }
+                    if (endIdx != -1) {
+                        val arrayContent = js.substring(startIdx, endIdx + 1)
+                        transformNFuncName = "transformN"
+                        transformNJsCode = "$arrayContent;\nvar transformN = ${funcName}[$index];"
+                    }
+                }
+            } else {
+                transformNFuncName = funcName
+                var startIdx = js.indexOf("$funcName=function(")
+                if (startIdx == -1) startIdx = js.indexOf("function $funcName(")
+                
+                if (startIdx != -1) {
+                    val braceStart = js.indexOf("{", startIdx)
+                    if (braceStart != -1) {
+                        var openBraces = 0
+                        var endIdx = -1
+                        for (i in braceStart until js.length) {
+                            if (js[i] == '{') openBraces++
+                            else if (js[i] == '}') {
+                                openBraces--
+                                if (openBraces == 0) {
+                                    endIdx = i
+                                    break
+                                }
+                            }
+                        }
+                        if (endIdx != -1) {
+                            val funcContent = js.substring(startIdx, endIdx + 1)
+                            transformNJsCode = if (funcContent.startsWith("function")) funcContent else "var $funcContent;"
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback for newer/different formats
+            val fallbackRegex = Regex("""\b([a-zA-Z0-9$]+)\s*=\s*function\([a-zA-Z0-9$]+\)\s*\{\s*var\s+[a-zA-Z0-9$]+\s*=\s*[a-zA-Z0-9$]+\.split\(""\);\s*[a-zA-Z0-9$]+[a-zA-Z0-9$\[\]]*;""")
+            val fallbackMatch = fallbackRegex.find(js)
+            if (fallbackMatch != null) {
+                val funcName = fallbackMatch.groupValues[1]
+                transformNFuncName = funcName
+                var startIdx = js.indexOf("$funcName=function(")
+                if (startIdx == -1) startIdx = js.indexOf("function $funcName(")
+                
+                if (startIdx != -1) {
+                    val braceStart = js.indexOf("{", startIdx)
+                    if (braceStart != -1) {
+                        var openBraces = 0
+                        var endIdx = -1
+                        for (i in braceStart until js.length) {
+                            if (js[i] == '{') openBraces++
+                            else if (js[i] == '}') {
+                                openBraces--
+                                if (openBraces == 0) {
+                                    endIdx = i
+                                    break
+                                }
+                            }
+                        }
+                        if (endIdx != -1) {
+                            val funcContent = js.substring(startIdx, endIdx + 1)
+                            transformNJsCode = if (funcContent.startsWith("function")) funcContent else "var $funcContent;"
+                        }
+                    }
+                }
             }
         }
     }
