@@ -126,11 +126,42 @@ object YouTubeExtractor {
     }
 
     private fun prepareThrottlingDeobfuscator(js: String) {
-        val nFuncNameRegex = Regex("""\.get\("n"\)\)&&\([a-zA-Z0-9$]+?=([a-zA-Z0-9$]+)(?:\[(\d+)\])?\([a-zA-Z0-9$]+\)""")
-        val match = nFuncNameRegex.find(js)
+        val nFuncStartRegex = Regex("""([a-zA-Z0-9$]+)\s*=\s*function\([a-zA-Z0-9$]+\)\s*\{\s*var\s+[a-zA-Z0-9$]+\s*=\s*[a-zA-Z0-9$]+\.split\(""\)""")
+        val match = nFuncStartRegex.find(js)
         if (match != null) {
             val funcName = match.groupValues[1]
-            val index = match.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
+            val startIdx = match.range.first
+            
+            val braceStart = js.indexOf("{", startIdx)
+            if (braceStart != -1) {
+                var openBraces = 0
+                var endIdx = -1
+                for (i in braceStart until js.length) {
+                    if (js[i] == '{') openBraces++
+                    else if (js[i] == '}') {
+                        openBraces--
+                        if (openBraces == 0) {
+                            endIdx = i
+                            break
+                        }
+                    }
+                }
+                if (endIdx != -1) {
+                    val funcContent = js.substring(startIdx, endIdx + 1)
+                    transformNFuncName = funcName
+                    transformNJsCode = if (funcContent.trimStart().startsWith("var")) funcContent else "var $funcContent;"
+                    println("[YouTubeExtractor] Found n-function using split regex: $transformNFuncName")
+                    return
+                }
+            }
+        }
+        
+        // Fallback to older patterns
+        val nFuncNameRegex = Regex("""\.get\("n"\)\)&&\([a-zA-Z0-9$]+?=([a-zA-Z0-9$]+)(?:\[(\d+)\])?\([a-zA-Z0-9$]+\)""")
+        val match2 = nFuncNameRegex.find(js)
+        if (match2 != null) {
+            val funcName = match2.groupValues[1]
+            val index = match2.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }
             
             if (index != null) {
                 val startIdx = js.indexOf("var $funcName=[")
