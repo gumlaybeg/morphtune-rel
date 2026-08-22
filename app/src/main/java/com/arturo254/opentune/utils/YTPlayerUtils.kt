@@ -163,7 +163,7 @@ object YTPlayerUtils {
                     break
                 }
 
-                if (validateStatus(streamUrl, client.userAgent)) {
+                if (validateStatus(streamUrl, YouTubeClient.IOS.userAgent)) {
                     // working stream found
                     Timber.tag(logTag).d("Stream validated successfully with client: ${if (clientIndex == -1) MAIN_CLIENT.clientName else STREAM_FALLBACK_CLIENTS[clientIndex].clientName}")
                     break
@@ -261,20 +261,21 @@ object YTPlayerUtils {
      */
     private fun validateStatus(url: String, userAgent: String): Boolean {
         Timber.tag(logTag).d("Validating stream URL status")
-        try {
+        return try {
             val requestBuilder = Request.Builder()
-                .head()
+                .get()
                 .url(url)
                 .header("User-Agent", userAgent)
+                .header("Range", "bytes=0-0")
             val response = httpClient.newCall(requestBuilder.build()).execute()
-            val isSuccessful = response.isSuccessful
+            val isSuccessful = response.isSuccessful || response.code == 206
             Timber.tag(logTag).d("Stream URL validation result: ${if (isSuccessful) "Success" else "Failed"} (${response.code})")
-            return isSuccessful
+            response.close()
+            isSuccessful
         } catch (e: Exception) {
             Timber.tag(logTag).e(e, "Stream URL validation failed with exception")
-            reportException(e)
+            false
         }
-        return false
     }
     /**
      * Wrapper around the [NewPipeExtractor.getSignatureTimestamp] function which reports exceptions
@@ -287,7 +288,6 @@ object YTPlayerUtils {
             .onSuccess { Timber.tag(logTag).d("Signature timestamp obtained: $it") }
             .onFailure {
                 Timber.tag(logTag).e(it, "Failed to get signature timestamp")
-                reportException(it)
             }
             .getOrNull()
     }
@@ -305,7 +305,6 @@ object YTPlayerUtils {
             .onSuccess { Timber.tag(logTag).d("Stream URL obtained successfully") }
             .onFailure {
                 Timber.tag(logTag).e(it, "Failed to get stream URL")
-                reportException(it)
             }
             .getOrNull()
     }
