@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import com.arturo254.innertube.YouTube
+import com.arturo254.innertube.models.YouTubeClient
 import com.arturo254.opentune.constants.AudioQuality
 import com.arturo254.opentune.constants.AudioQualityKey
 import com.arturo254.opentune.db.MusicDatabase
@@ -51,7 +52,7 @@ constructor(
                             .Builder()
                             .proxy(YouTube.proxy)
                             .build(),
-                    ),
+                    ).setUserAgent(YouTubeClient.IOS.userAgent),
                 ),
             database,
             context // Pass context here
