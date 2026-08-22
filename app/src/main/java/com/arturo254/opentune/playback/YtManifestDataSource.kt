@@ -44,9 +44,13 @@ class YtManifestDataSource(
         .readTimeout(2, TimeUnit.SECONDS)
         .build()
 
-    private fun validateStatus(url: String): Boolean {
+    private fun validateStatus(url: String, userAgent: String): Boolean {
         return try {
-            val request = Request.Builder().head().url(url).build()
+            val request = Request.Builder()
+                .head()
+                .url(url)
+                .header("User-Agent", userAgent)
+                .build()
             val response = httpClient.newCall(request).execute()
             val isSuccess = response.isSuccessful
             response.close()
@@ -113,7 +117,7 @@ class YtManifestDataSource(
                         val aUrl = NewPipeExtractor.getStreamUrl(aFormat, videoId) ?: continue
                         
                         // Validate the stream URL to avoid 403 Forbidden errors during playback
-                        if (validateStatus(aUrl)) {
+                        if (validateStatus(aUrl, client.userAgent)) {
                             validAudioFormat = aFormat
                             validVideoFormat = vFormat
                             audioUrl = aUrl.replace("&", "&amp;")
