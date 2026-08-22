@@ -40,8 +40,8 @@ class YtManifestDataSource(
     // Fast fail timeouts to prevent hanging on blocked streams
     private val httpClient = OkHttpClient.Builder()
         .proxy(YouTube.proxy)
-        .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(2, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private fun validateStatus(url: String, userAgent: String): Boolean {
@@ -89,6 +89,12 @@ class YtManifestDataSource(
                 var audioUrl = ""
                 var videoUrl = ""
                 var playerResponse: com.arturo254.innertube.models.response.PlayerResponse? = null
+                
+                var firstAudioUrl = ""
+                var firstVideoUrl = ""
+                var firstAudioFormat: com.arturo254.innertube.models.response.PlayerResponse.StreamingData.Format? = null
+                var firstVideoFormat: com.arturo254.innertube.models.response.PlayerResponse.StreamingData.Format? = null
+                var firstPlayerResponse: com.arturo254.innertube.models.response.PlayerResponse? = null
 
                 for (client in clients) {
                     val res = runBlocking(Dispatchers.IO) {
@@ -116,6 +122,14 @@ class YtManifestDataSource(
 
                         val aUrl = NewPipeExtractor.getStreamUrl(aFormat, videoId) ?: continue
                         
+                        if (firstAudioUrl.isEmpty()) {
+                            firstAudioUrl = aUrl.replace("&", "&amp;")
+                            firstVideoUrl = vFormat?.let { NewPipeExtractor.getStreamUrl(it, videoId) }?.replace("&", "&amp;") ?: ""
+                            firstAudioFormat = aFormat
+                            firstVideoFormat = vFormat
+                            firstPlayerResponse = res
+                        }
+                        
                         // Validate the stream URL to avoid 403 Forbidden errors during playback
                         if (validateStatus(aUrl, client.userAgent)) {
                             validAudioFormat = aFormat
@@ -126,6 +140,16 @@ class YtManifestDataSource(
                             break
                         }
                     }
+                }
+                
+                // If all validations failed, fallback to the first client that returned a stream URL
+                if (validAudioFormat == null && firstAudioFormat != null) {
+                    println("All HEAD validations failed. Falling back to first extracted stream.")
+                    validAudioFormat = firstAudioFormat
+                    validVideoFormat = firstVideoFormat
+                    audioUrl = firstAudioUrl
+                    videoUrl = firstVideoUrl
+                    playerResponse = firstPlayerResponse
                 }
 
                 if (validAudioFormat == null || playerResponse == null) {
